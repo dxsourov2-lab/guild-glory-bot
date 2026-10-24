@@ -1,0 +1,244 @@
+
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guild Glory Dashboard</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #101827;
+      color: white;
+    }
+    .container {
+      max-width: 800px;
+      margin: auto;
+    }
+    h1 { color: #58e6a9; }
+    .card {
+      background: #1d293b;
+      padding: 18px;
+      border-radius: 12px;
+      margin: 15px 0;
+    }
+    input, button {
+      box-sizing: border-box;
+      padding: 11px;
+      margin: 5px 0;
+      border-radius: 7px;
+      border: 0;
+      font-size: 15px;
+    }
+    input { width: 100%; }
+    button {
+      background: #58e6a9;
+      color: #102018;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px 5px;
+      text-align: left;
+      border-bottom: 1px solid #39465a;
+      overflow-wrap: anywhere;
+    }
+    .muted { color: #bdc8d8; }
+    .danger { background: #ff7676; }
+    .table-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏆 Guild Glory Dashboard</h1>
+    <p class="muted">Free Fire Guild Member Manager</p>
+
+    <div class="card">
+      <h2>সদস্য যোগ / আপডেট</h2>
+      <input id="uid" placeholder="Player UID">
+      <input id="name" placeholder="Player Name">
+      <input id="glory" type="number" min="0" placeholder="Glory Points">
+      <button onclick="saveMember()">Save Member</button>
+      <p id="message" class="muted"></p>
+    </div>
+
+    <div class="card">
+      <h2>📊 Guild Leaderboard</h2>
+      <p id="total" class="muted">মোট সদস্য: 0</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>UID</th>
+              <th>Name</th>
+              <th>Glory</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="members"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>CSV Import / Export</h2>
+      <input id="csvFile" type="file" accept=".csv,text/csv">
+      <button onclick="importCSV()">Import CSV</button>
+      <button onclick="exportCSV()">Export CSV</button>
+      <p class="muted">CSV ফাইলের কলাম: UID,Name,Glory</p>
+    </div>
+    <p class="muted">
+      নোট: এই সংস্করণে Glory ম্যানুয়ালি দিতে হবে।
+      এটি Garena-এর সার্ভার থেকে স্বয়ংক্রিয় ডেটা নেয় না।
+      ডেটা এই ব্রাউজারের Local Storage-এ থাকে।
+    </p>
+  </div>
+
+  <script>
+    let members = [];
+
+    try {
+      members = JSON.parse(
+        localStorage.getItem("guildGloryMembers") || "[]"
+      );
+      if (!Array.isArray(members)) members = [];
+    } catch (e) {
+      members = [];
+    }
+
+    function saveMember() {
+      const uid = document.getElementById("uid").value.trim();
+      const name = document.getElementById("name").value.trim();
+      const gloryText = document.getElementById("glory").value.trim();
+      const glory = Number(gloryText);
+
+      if (!uid || !name || gloryText === "" ||
+          !Number.isFinite(glory) || glory < 0) {
+        alert("UID, Name ও সঠিক Glory Points দাও।");
+        return;
+      }
+
+      const existing = members.find(m => m.uid === uid);
+
+      if (existing) {
+        existing.name = name;
+        existing.glory = glory;
+      } else {
+        members.push({ uid, name, glory });
+      }
+
+      persist();
+      document.getElementById("uid").value = "";
+      document.getElementById("name").value = "";
+      document.getElementById("glory").value = "";
+      document.getElementById("message").textContent =
+        "সদস্য সেভ হয়েছে!";
+    }
+
+    function persist() {
+      localStorage.setItem("guildGloryMembers", JSON.stringify(members));
+      render();
+    }
+
+    function render() {
+      const sorted = [...members].sort((a, b) => b.glory - a.glory);
+      const tbody = document.getElementById("members");
+      tbody.replaceChildren();
+
+      sorted.forEach((m, index) => {
+        const tr = document.createElement("tr");
+        [index + 1, m.uid, m.name, m.glory].forEach(value => {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.appendChild(td);
+        });
+
+        const action = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.textContent = "Delete";
+        btn.className = "danger";
+        btn.onclick = () => {
+          if (confirm("এই সদস্যকে মুছে ফেলবে?")) {
+            members = members.filter(x => x.uid !== m.uid);
+            persist();
+          }
+        };
+        action.appendChild(btn);
+        tr.appendChild(action);
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById("total").textContent =
+        "মোট সদস্য: " + members.length;
+    }
+
+    function importCSV() {
+      const file = document.getElementById("csvFile").files[0];
+      if (!file) {
+        alert("প্রথমে একটি CSV ফাইল নির্বাচন করো।");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const lines = String(reader.result).split(/\r?\n/).filter(Boolean);
+        let added = 0;
+
+        lines.slice(1).forEach(line => {
+          const parts = line.split(",");
+          if (parts.length < 3) return;
+
+          const uid = parts[0].trim();
+          const name = parts[1].trim();
+          const glory = Number(parts[2].trim());
+
+          if (!uid || !name || !Number.isFinite(glory) || glory < 0) return;
+
+          const existing = members.find(m => m.uid === uid);
+          if (existing) {
+            existing.name = name;
+            existing.glory = glory;
+          } else {
+            members.push({ uid, name, glory });
+          }
+          added++;
+        });
+
+        persist();
+        alert(added + "টি রেকর্ড Import হয়েছে।");
+      };
+      reader.readAsText(file);
+    }
+
+    function exportCSV() {
+      const rows = [["UID", "Name", "Glory"],
+        ...members.map(m => [m.uid, m.name, m.glory])];
+
+      const csv = rows.map(row =>
+        row.map(value =>
+          '"' + String(value).replace(/"/g, '""') + '"'
+        ).join(",")
+      ).join("\r\n");
+
+      const blob = new Blob(["\uFEFF" + csv], {
+        type: "text/csv;charset=utf-8;"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "guild-glory.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    render();
+  </script>
+</body>
+</html>
